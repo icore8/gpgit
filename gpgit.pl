@@ -265,17 +265,21 @@ sub getDestinations {
 
     my @destinations = ();
     my $header = Mail::Header->new(\@mail);
-    foreach my $fieldname ('To', 'Cc', 'Bcc', 'Envelope-To')
-    {
-        for(my $i=0; $i<$header->count($fieldname);++$i)
-        {
-            my $fc = $header->get($fieldname,$i);
-            # use static 'To' instead of $fieldname
-            # because 'Bcc' field has no addresses() function
-            my @addr = Mail::Field->new('To')->parse($fc)->addresses();
-            push @destinations, @addr;
-        }
-    }
+    #foreach my $fieldname ('To', 'Cc', 'Bcc', 'Envelope-To')
+    #{
+    #    for(my $i=0; $i<$header->count($fieldname);++$i)
+    #    {
+    #        my $fc = $header->get($fieldname,$i);
+    #        # use static 'To' instead of $fieldname
+    #        # because 'Bcc' field has no addresses() function
+    #        my @addr = Mail::Field->new('To')->parse($fc)->addresses();
+    #        push @destinations, @addr;
+    #    }
+    #}
+
+    # the only relevant field is Received:.
+    # each recipient will trigger the filter once
+    push @destinations, Mail::Field->new('Received')->parse($header->get('Received',0))->parse_tree()->{'for'}{'for'};
 
     return @destinations;
 
