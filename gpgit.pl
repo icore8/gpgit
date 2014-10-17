@@ -48,6 +48,8 @@ use Data::Dumper;
        }
     } elsif( $key eq '--gpg-home' ){
         $gpg_params{'keydir'} = shift @args;
+    } elsif( $key eq '--gpg-path' ){
+        $gpg_params{'gpg_path'} = 1;
     } elsif( $key eq '--always-trust' ){
         $gpg_params{'always_trust'} = 1;
     } elsif( $key eq '--inline-flatten' ){
