@@ -3,6 +3,7 @@
 ##############################################################################
 #                                                                            #
 # Copyright 2011, Mike Cardwell - https://grepular.com/                      #
+# Automatic extraction of recipients 2014, Gregor Jehle                      #
 #                                                                            #
 # This program is free software; you can redistribute it and/or modify       #
 # it under the terms of the GNU General Public License as published by       #
@@ -24,32 +25,32 @@ use strict;
 use warnings;
 use Mail::GnuPG;
 use MIME::Parser;
+use Mail::Header;
+use Mail::Field;
 
 ## Parse args
   my $encrypt_mode   = 'pgpmime';
   my $inline_flatten = 0;
   my @recipients     = ();
   {
-     help() unless @ARGV;
      my @args = @ARGV;
      while( @args ){
         my $key = shift @args;
-	if( $key eq '--help' || $key eq '-h' ){
-	   help();
-	} elsif( $key eq '--encrypt-mode' ){
-	   $encrypt_mode = shift @args;
-	   unless( defined $encrypt_mode && grep( $encrypt_mode eq $_, 'prefer-inline', 'pgpmime', 'inline-or-plain' ) ){
-	      die "Bad value for --encrypt-mode\n";
-	   }
-	} elsif( $key eq '--inline-flatten' ){
+    if( $key eq '--help' || $key eq '-h' ){
+       help();
+    } elsif( $key eq '--encrypt-mode' ){
+       $encrypt_mode = shift @args;
+       unless( defined $encrypt_mode && grep( $encrypt_mode eq $_, 'prefer-inline', 'pgpmime', 'inline-or-plain' ) ){
+          die "Bad value for --encrypt-mode\n";
+       }
+    } elsif( $key eq '--inline-flatten' ){
            $inline_flatten = 1;
-	} elsif( $key =~ /^.+\@.+$/ ){
-	   push @recipients, $key;
-	} else {
+    } elsif( $key =~ /^.+\@.+$/ ){
+       push @recipients, $key;
+    } else {
            die "Bad argument: $key\n";
-	}
+    }
      }
-     die "Missing recipients\n" unless @recipients;
      if( $inline_flatten && $encrypt_mode eq 'pgpmime' ){
         die "inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n"
      }
@@ -57,6 +58,18 @@ use MIME::Parser;
 
 ## Set the home environment variable from the user running the script
   $ENV{HOME} = (getpwuid($>))[7];
+
+## Read the plain text email
+
+  my $plain = "";
+  {
+      local $/=undef;
+      $plain = <STDIN>;
+  }
+  my @plain_lines = split '\n',$plain;
+
+
+push @recipients, &getDestinations(@plain_lines);
 
 ## Object for GPG encryption
   my $gpg = new Mail::GnuPG();
@@ -71,12 +84,6 @@ use MIME::Parser;
      }
   }
 
-## Read the plain text email
-  my $plain;
-  {
-     local $/ = undef;
-     $plain = <STDIN>;
-  }
 
 ## Parse the email
   my $mime;
@@ -109,13 +116,13 @@ use MIME::Parser;
         if( $mime->mime_type =~ /^multipart\/(alternative|related)$/ ){
 
            ## We're going to try several things to flatten the email to a single text/plain part. We want to work on a duplicate
-	   ## version of the message so we can fall back to the original if we don't manage to flatten all the way
+       ## version of the message so we can fall back to the original if we don't manage to flatten all the way
              my $new_mime = $mime->dup;
 
            ## Remember the original MIME structure so we can add it to an information header
              my $orig_mime_structure = mime_structure( $mime );
 
-	   ## We may already be able to safely flatten, if we have a multipart/x message with only a single child part. Unlikely
+       ## We may already be able to safely flatten, if we have a multipart/x message with only a single child part. Unlikely
              $new_mime->make_singlepart;
 
            ## multipart/related
@@ -144,15 +151,15 @@ use MIME::Parser;
      } elsif( $encrypt_mode eq 'inline-or-plain' ){
         $mime->make_singlepart;
         if( $mime->mime_type =~ /^text\/plain/ ){
-	   $code = $gpg->ascii_encrypt( $mime, @recipients );
-	} else {
-	   print $plain; exit 0;
-	}
+       $code = $gpg->ascii_encrypt( $mime, @recipients );
+    } else {
+       print $plain; exit 0;
+    }
      }
 
      if( $code ){
         print $plain;
-	exit 0;
+    exit 0;
      }
   }
 
@@ -238,18 +245,42 @@ use MIME::Parser;
      my $entity = shift;
      if( $entity->mime_type =~ /^multipart\/.+/ ){
         my @parts = $entity->parts;
-	return $entity->mime_type.'('.join(",",map {mime_structure($_)} @parts).')';
+    return $entity->mime_type.'('.join(",",map {mime_structure($_)} @parts).')';
      } else {
         return $entity->mime_type;
      }
   }
 
+sub getDestinations {
+    my @mail = @_;
+
+    my @destinations = ();
+    my $header = Mail::Header->new(\@mail);
+    foreach my $fieldname ('To', 'Cc', 'Bcc')
+    {
+        for(my $i=0; $i<$header->count($fieldname);++$i)
+        {
+            my $fc = $header->get($fieldname,$i);
+            # use static 'To' instead of $fieldname
+            # because 'Bcc' field has no addresses() function
+            my @addr = Mail::Field->new('To')->parse($fc)->addresses();
+            push @destinations, @addr;
+        }
+    }
+
+    return @destinations;
+
+}
+
+
+
 sub help {
    print << "END_HELP";
-Usage: gpgit.pl recipient1 recipient2
+Usage: gpgit.pl [recipient ...]
 
-Gpgit takes a list of email addresses as its arguments. The email is encrypted
-using the public keys associated with those email addresses. Those public keys
+Gpgit takes an optional list of email addresses as its arguments. The email
+is encrypted using the public keys associated with those email addresses as
+well as those found in To:, Cc:, Bcc: fields. Those public keys
 *MUST* have been assigned "Ultimate" trust or it wont work.
 
 Optional arguments:
@@ -288,3 +319,4 @@ I believe them to be safe(ish):
 END_HELP
   exit 0;
 }
+
