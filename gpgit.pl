@@ -263,7 +263,7 @@ sub getDestinations {
 
     my @destinations = ();
     my $header = Mail::Header->new(\@mail);
-    foreach my $fieldname ('To', 'Cc', 'Bcc')
+    foreach my $fieldname ('To', 'Cc', 'Bcc', 'Envelope-To')
     {
         for(my $i=0; $i<$header->count($fieldname);++$i)
         {
