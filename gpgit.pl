@@ -27,11 +27,14 @@ use Mail::GnuPG;
 use MIME::Parser;
 use Mail::Header;
 use Mail::Field;
+use Data::Dumper;
 
 ## Parse args
   my $encrypt_mode   = 'pgpmime';
   my $inline_flatten = 0;
   my @recipients     = ();
+  my $gpg_home       = 0;
+  my %gpg_params = ();
   {
      my @args = @ARGV;
      while( @args ){
@@ -43,6 +46,8 @@ use Mail::Field;
        unless( defined $encrypt_mode && grep( $encrypt_mode eq $_, 'prefer-inline', 'pgpmime', 'inline-or-plain' ) ){
           die "Bad value for --encrypt-mode\n";
        }
+    } elsif( $key eq '--gpg-home' ){
+        $gpg_params{'keydir'} = shift @args;
     } elsif( $key eq '--inline-flatten' ){
            $inline_flatten = 1;
     } elsif( $key =~ /^.+\@.+$/ ){
@@ -72,7 +77,7 @@ use Mail::Field;
 push @recipients, &getDestinations(@plain_lines);
 
 ## Object for GPG encryption
-  my $gpg = new Mail::GnuPG();
+  my $gpg = new Mail::GnuPG(%gpg_params);
 
 ## Make sure we have the appropriate public key for all recipients
   foreach( @recipients ){
@@ -288,6 +293,10 @@ Optional arguments:
   --help or -h
 
 Display this usage information.
+
+  --gpg-home /path/to/gpg/config/
+
+Set the location of the GnuPG configuration and keyring
 
   --encrypt-mode prefer-inline / pgpmime / inline-or-plain
 
