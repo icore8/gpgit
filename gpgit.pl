@@ -48,6 +48,8 @@ use Data::Dumper;
        }
     } elsif( $key eq '--gpg-home' ){
         $gpg_params{'keydir'} = shift @args;
+    } elsif( $key eq '--always-trust' ){
+        $gpg_params{'always_trust'} = 1;
     } elsif( $key eq '--inline-flatten' ){
            $inline_flatten = 1;
     } elsif( $key =~ /^.+\@.+$/ ){
@@ -297,6 +299,10 @@ Display this usage information.
   --gpg-home /path/to/gpg/config/
 
 Set the location of the GnuPG configuration and keyring
+
+  --always-trust
+
+Trust all keys, even if trust level is not 'Ultimate'
 
   --encrypt-mode prefer-inline / pgpmime / inline-or-plain
 
