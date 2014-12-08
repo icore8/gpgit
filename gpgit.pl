@@ -36,6 +36,8 @@ use Time::HiRes;
   my @recipients     = ();
   my $gpg_home       = 0;
   my %gpg_params = ();
+  my %rewrite_rules = ();
+  my $no_encrypt_to = "";
   {
      my @args = @ARGV;
      while( @args ){
@@ -55,6 +57,10 @@ use Time::HiRes;
         $gpg_params{'always_trust'} = 1;
     } elsif( $key eq '--inline-flatten' ){
            $inline_flatten = 1;
+    } elsif( $key eq '--no-encrypt-to' ){
+	$no_encrypt_to = shift @args;
+    } elsif( $key eq '--rewrite-config' ){
+	%rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) };
     } elsif( $key =~ /^.+\@.+$/ ){
        push @recipients, $key;
     } else {
@@ -82,6 +88,26 @@ use Time::HiRes;
 &dumpMail($plain);
 
 push @recipients, &getDestinations(@plain_lines);
+
+@recipients = @{ &rw_rewrite_address_list(\@recipients, \%rewrite_rules) };
+
+if(scalar @recipients > 0) {
+        if(!&can_encrypt_to(\@recipients)){
+                &log("WARNING: not encrypting mail to local receipient: ".join(", ", @recipients));
+                print $plain;
+                exit;
+        }
+        else {
+                &log("INFO: encryping direct mail to ".join(", ", @recipients));
+        }
+}
+else {
+        &log("ERROR: no receipient extracted from mail. Sending unencrypted. Dumping:$/".$plain."$/$/");
+        print $plain;
+        exit;
+}
+
+&log("INFO: proceeding to encrypt mail to: ".join(", ", @recipients));
 
 ## Object for GPG encryption
   my $gpg = new Mail::GnuPG(%gpg_params);
@@ -310,6 +336,95 @@ sub dumpMail {
         print $fh shift;
         close($fh);
 }
+
+
+## rewrite addresses using the supplied rewrite rule hash lookup table
+# param: addresses (array ref)
+# param: rewriterules (hash ref, key: string, value: ref(array of strings))
+# returns: rewritten address list (array ref)
+sub rw_rewrite_address_list()
+{
+	my $addresses = shift;
+	my $rewriterules = shift;
+
+	my @lc_addresses = map {lc($_)}	@{$addresses};
+
+	# rewrite addresses
+	my @res  = map { $rewriterules->{$_} ? @{$rewriterules->{$_}} : $_; } @lc_addresses;
+	
+	# flatten array
+	@res = keys { map { $_ => 1 } @res };
+
+	if(!&is_address_array_effectively_the_same(\@res, \@lc_addresses))
+	{
+                &log("INFO: rewriting receipients list (pre): ".join(", ", @lc_addresses));
+                &log("INFO: rewriting receipients list (post): ".join(", ", @res));
+	}
+
+	return \@res;
+}
+
+## parses an array of config lines into a hash lookup table
+# param: config file contents (array of strings in format "from: to1, to2, to3, ...")
+# returns: lookup table (hash ref, key: string, value: ref(array of strings))
+sub rw_parse_config()
+{
+	my %conf = ();
+	while(my $entry = shift)
+	{
+		my ($from, $to) = split(/\s*:\s*/, $entry);
+		$conf{lc($from)} = [map { lc($_) } split(/\s*,\s*/, $to)];
+	}
+	return \%conf;
+}
+
+## reads contents of configuration file
+# param: configuration filename (string)
+# returns: file contents (array of strings)
+sub rw_read_config()
+{
+	my $fname = shift;
+	my @lines = ();
+	open(my $fh, "<", $fname) or return @lines;
+	while(my $line = <$fh>)
+	{
+		chomp($line);
+		push @lines, $line;
+	}
+	return @lines;
+}
+
+# checks equality of two arrays by value
+# param: first array ref(array of string)
+# param: second array ref(array of string)
+# return: 1 or 0
+sub is_address_array_effectively_the_same()
+{
+	my $la = shift;
+	my $lb = shift;
+	my %ha = map { $_ => 1 } @{$la};
+	
+	foreach(@{$lb})
+	{
+		return 0 if(!exists $ha{$_});
+	}
+	return 1;
+}
+
+## check if we're dealing with a trivial local address (no at-sign) or something defined via --no-encrypt-to
+# param: recipient addresses ref(array of string)
+# return: 1 or 0
+sub can_encrypt_to()
+{
+	my $recp = shift;
+	foreach(@{$recp})
+	{
+		my $addr = $_;
+		return 0 if((length($no_encrypt_to) and $addr =~ /$no_encrypt_to/) or $addr !~ /\@/)
+	}
+	return 1;
+}
+
 
 
 sub help {
