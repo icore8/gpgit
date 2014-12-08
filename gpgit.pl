@@ -65,7 +65,6 @@ use Time::HiRes;
         die "inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n"
      }
   }
-
 ## Set the home environment variable from the user running the script
   $ENV{HOME} = (getpwuid($>))[7];
 
@@ -96,7 +95,6 @@ push @recipients, &getDestinations(@plain_lines);
         exit 0;
      }
   }
-
 
 ## Parse the email
   my $mime;
@@ -349,7 +347,7 @@ option, we attempt to convert multipart emails to a single part text/plain
 email, so inline encryption can be used. The methods we use are "lossy", but
 I believe them to be safe(ish):
 
-1.) When we find a multipart/alternative part which contains two parts: A 
+1.) When we find a multipart/alternative part which contains two parts: A
     text/plain part with at least 10 characters in it, and a text/html part,
     we remove the text/html part. The text/plain part *should* contain the
     same content as the text/html part, but without the HTML markup.
