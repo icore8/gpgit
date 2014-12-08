@@ -136,7 +136,9 @@ else {
 
 ## Test if it is already encrypted
   if( $gpg->is_encrypted( $mime ) ){
-     print $plain; exit 0;
+     &log("INFO: mail is already encrypted");
+     print $plain;
+     exit 0;
   }
 
 ## If the user has specified that they prefer/need inline encryption, instead of PGP/MIME, and the email is multipart, then
