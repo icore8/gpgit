@@ -281,8 +281,9 @@ sub getDestinations {
 
     # the only relevant field is Received:.
     # each recipient will trigger the filter once
-    push @destinations, Mail::Field->new('Received')->parse($header->get('Received',0))->parse_tree()->{'for'}{'for'};
-
+    my $tree = Mail::Field->new('Received')->parse($header->get('Received',0))->parse_tree();
+    push @destinations, $tree->{'for'}{'for'};
+#&log(Data::Dumper->Dump([$tree]));
     return @destinations;
 
 }
