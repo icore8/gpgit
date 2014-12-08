@@ -88,7 +88,10 @@ push @recipients, &getDestinations(@plain_lines);
 
 ## Make sure we have the appropriate public key for all recipients
   foreach( @recipients ){
-     unless( $gpg->has_public_key( $_ ) ){
+     my $target = $_;
+     unless( $gpg->has_public_key( $target ) ){
+	&log("ERROR: missing key for $target. Not encrypting mail!");
+	print $plain;
         while(<STDIN>){
            print;
         }
