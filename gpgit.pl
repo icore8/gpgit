@@ -93,7 +93,7 @@ push @recipients, &getDestinations(@plain_lines);
 
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
-                &log("WARNING: not encrypting mail to local receipient: ".join(", ", @recipients));
+                &log("WARNING: not encrypting mail to blacklisted receipient: ".join(", ", @recipients));
                 print $plain;
                 exit;
         }
