@@ -28,6 +28,7 @@ use MIME::Parser;
 use Mail::Header;
 use Mail::Field;
 use Data::Dumper;
+use Time::HiRes;
 
 ## Parse args
   my $encrypt_mode   = 'pgpmime';
@@ -77,6 +78,9 @@ use Data::Dumper;
   }
   my @plain_lines = split '\n',$plain;
 
+&log("INFO: processing mail");
+
+&dumpMail($plain);
 
 push @recipients, &getDestinations(@plain_lines);
 
@@ -285,6 +289,25 @@ sub getDestinations {
 
 }
 
+sub getLoggingTime {
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime(time);
+    my $nice_timestamp = sprintf ( "%04d-%02d-%02d %02d:%02d:%02d",
+                                   $year+1900,$mon+1,$mday,$hour,$min,$sec);
+    return $nice_timestamp;
+}
+sub log {
+        open(my $fh, ">>", "/var/log/exim4/cryptowrapper.debug.log");
+        print $fh &getLoggingTime(), " - ", shift, "$/";
+        close($fh);
+}
+
+sub dumpMail {
+        my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
+        &log("DEBUG: logging mail to \"$dumpname\"");
+        open(my $fh, ">>", "$dumpname");
+        print $fh shift;
+        close($fh);
+}
 
 
 sub help {
