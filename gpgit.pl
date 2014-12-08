@@ -37,7 +37,7 @@ use Time::HiRes;
   my $gpg_home       = 0;
   my %gpg_params = ();
   my %rewrite_rules = ();
-  my $no_encrypt_to = "";
+  my @no_encrypt_to = ();
   {
      my @args = @ARGV;
      while( @args ){
@@ -58,7 +58,7 @@ use Time::HiRes;
     } elsif( $key eq '--inline-flatten' ){
            $inline_flatten = 1;
     } elsif( $key eq '--no-encrypt-to' ){
-	$no_encrypt_to = shift @args;
+	push @no_encrypt_to, shift @args;
     } elsif( $key eq '--rewrite-config' ){
 	%rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) };
     } elsif( $key =~ /^.+\@.+$/ ){
@@ -422,7 +422,12 @@ sub can_encrypt_to()
 	foreach(@{$recp})
 	{
 		my $addr = $_;
-		return 0 if((length($no_encrypt_to) and $addr =~ /$no_encrypt_to/) or $addr !~ /\@/)
+		return 0 if($addr !~ /\@/);
+		foreach(@no_encrypt_to)
+		{
+			my $blacklist = $_;
+			return 0 if($addr =~ /$blacklist/);
+		}
 	}
 	return 1;
 }
