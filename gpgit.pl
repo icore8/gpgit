@@ -65,7 +65,7 @@ my @dlog = qw(/var/log/exim /var/log /tmp);
 	push @no_encrypt_to, shift @args;
     } elsif( $key eq '--rewrite-config' ){
 	%rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) };
-    } elsif( $key =~ /^.+\@.+$/ ){
+    } elsif( $key =~ /^.+\@.+$/x ){
        push @recipients, $key;
     } else {
            die "Bad argument: $key\n";
@@ -159,7 +159,7 @@ else {
 
   if( $inline_flatten ){
      if( $encrypt_mode eq 'prefer-inline' || $encrypt_mode eq 'inline-or-plain' ){
-        if( $mime->mime_type =~ /^multipart\/(alternative|related)$/ ){
+        if( $mime->mime_type =~ /^multipart\/(alternative|related)$/x ){
 
            ## We're going to try several things to flatten the email to a single text/plain part. We want to work on a duplicate
        ## version of the message so we can fall back to the original if we don't manage to flatten all the way
@@ -176,7 +176,7 @@ else {
              flatten_alternative( $new_mime ) if $new_mime->mime_type eq 'multipart/alternative';
 
            ## Keep the new message if it was succesfully flattened
-             if( $new_mime->mime_type !~ /^multipart\// ){
+             if( $new_mime->mime_type !~ /^multipart\//x ){
                 $new_mime->head->add('X-GPGIT-Flattened-From', $orig_mime_structure );
                 $mime = $new_mime;
              }
@@ -191,12 +191,12 @@ else {
         $code = $gpg->mime_encrypt( $mime, @recipients );
      } elsif( $encrypt_mode eq 'prefer-inline' ){
         $mime->make_singlepart;
-        $code = $mime->mime_type =~ /^text\/plain/
+        $code = $mime->mime_type =~ /^text\/plain/x
               ? $gpg->ascii_encrypt( $mime, @recipients )
               : $gpg->mime_encrypt(  $mime, @recipients );
      } elsif( $encrypt_mode eq 'inline-or-plain' ){
         $mime->make_singlepart;
-        if( $mime->mime_type =~ /^text\/plain/ ){
+        if( $mime->mime_type =~ /^text\/plain/x ){
        $code = $gpg->ascii_encrypt( $mime, @recipients );
     } else {
        print $plain; exit 0;
@@ -223,7 +223,7 @@ else {
 
      if( int(@parts) == 2 && $parts[0]->mime_type eq 'text/plain' && $parts[1]->mime_type eq 'text/html' ){
         my $body = $parts[0]->bodyhandle->as_string;
-        $body =~ s/^[\s\r\n]*(.*?)[\s\r\n]*$/$1/s;
+        $body =~ s/^[\s\r\n]*(.*?)[\s\r\n]*$/$1/sx;
         if( length($body) >= 10 ){
            $entity->parts([$parts[0]]);
            $entity->make_singlepart;
@@ -239,10 +239,10 @@ else {
      ## Scan the existing parts
        my( @parts, %cids );
        foreach my $part ( $entity->parts ){
-          if( $part->mime_type =~ /^image\// ){
+          if( $part->mime_type =~ /^image\//x ){
              my $content_id = $part->head->get('Content-Id')||'';
-             $content_id =~ s/^<(.+?)>$/$1/;
-             $content_id =~ s/[\r\n]+//g;
+             $content_id =~ s/^<(.+?)>$/$1/x;
+             $content_id =~ s/[\r\n]+//gx;
              if( length($content_id) ){
                 push @parts, { content_id => $content_id, part => $part };
                 next;
@@ -279,18 +279,18 @@ else {
        my $html = $entity->bodyhandle->as_string;
 
      ## Replace newlines with spaces
-       $html =~ s/\s*[\r\n]+\s*/ /gsm;
+       $html =~ s/\s*[\r\n]+\s*/ /gsmx;
 
      ## Parse out cid urls
        my @cids;
-       $html =~ s/=\s*["']?cid:(.+?)["'\s\/>]/push @cids,$1/egoism;
+       $html =~ s/=\s*["']?cid:(.+?)["'\s\/>]/push @cids,$1/egoismx;
 
      return @cids;
   }
 
   sub mime_structure {
      my $entity = shift;
-     if( $entity->mime_type =~ /^multipart\/.+/ ){
+     if( $entity->mime_type =~ /^multipart\/.+/x ){
         my @parts = $entity->parts;
     return $entity->mime_type.'('.join(",",map {mime_structure($_)} @parts).')';
      } else {
@@ -351,6 +351,7 @@ sub loggit {
     }
     print $fh &getLoggingTime(), " - ", shift, "$/";
     close($fh);
+    undef $fh;
     return 1;
 }
 
@@ -398,8 +399,8 @@ sub rw_parse_config()
 	my %conf = ();
 	while(my $entry = shift)
 	{
-		my ($from, $to) = split(/\s*:\s*/, $entry);
-		$conf{lc($from)} = [map { lc($_) } split(/\s*,\s*/, $to)];
+		my ($from, $to) = split(/\s*:\s*/x, $entry);
+		$conf{lc($from)} = [map { lc($_) } split(/\s*,\s*/x, $to)];
 	}
 	return \%conf;
 }
@@ -446,11 +447,11 @@ sub can_encrypt_to()
 	foreach(@{$recp})
 	{
 		my $addr = $_;
-		return 0 if($addr !~ /\@/);
+		return 0 if($addr !~ /\@/x);
 		foreach(@no_encrypt_to)
 		{
 			my $blacklist = $_;
-			return 0 if($addr =~ /$blacklist/);
+			return 0 if($addr =~ /$blacklist/x);
 		}
 	}
 	return 1;
