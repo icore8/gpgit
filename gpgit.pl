@@ -87,7 +87,7 @@ local $ENV{HOME} = (getpwuid($>))[7];
   }
   my @plain_lines = split '\n',$plain;
 
-&log("INFO: processing mail");
+&loggit("INFO: processing mail");
 
 &dumpMail($plain);
 
@@ -97,21 +97,21 @@ push @recipients, &getDestinations(@plain_lines);
 
 if(scalar @recipients > 0) {
         if(!&can_encrypt_to(\@recipients)){
-                &log("WARNING: not encrypting mail to blacklisted receipient: ".join(", ", @recipients));
+                &loggit("WARNING: not encrypting mail to blacklisted receipient: ".join(", ", @recipients));
                 print $plain;
                 exit;
         }
         else {
-                &log("INFO: encryping direct mail to ".join(", ", @recipients));
+                &loggit("INFO: encryping direct mail to ".join(", ", @recipients));
         }
 }
 else {
-        &log("ERROR: no receipient extracted from mail. Sending unencrypted. Dumping:$/".$plain."$/$/");
+        &loggit("ERROR: no receipient extracted from mail. Sending unencrypted. Dumping:$/".$plain."$/$/");
         print $plain;
         exit;
 }
 
-&log("INFO: proceeding to encrypt mail to: ".join(", ", @recipients));
+&loggit("INFO: proceeding to encrypt mail to: ".join(", ", @recipients));
 
 ## Object for GPG encryption
   my $gpg = Mail::GnuPG->new(%gpg_params);
@@ -120,7 +120,7 @@ else {
   foreach( @recipients ){
      my $target = $_;
      unless( $gpg->has_public_key( $target ) ){
-	&log("ERROR: missing key for $target. Not encrypting mail!");
+	&loggit("ERROR: missing key for $target. Not encrypting mail!");
 	print $plain;
         while(<>){
            print;
@@ -140,7 +140,7 @@ else {
 
 ## Test if it is already encrypted
   if( $gpg->is_encrypted( $mime ) ){
-     &log("INFO: mail is already encrypted");
+     &loggit("INFO: mail is already encrypted");
      print $plain;
      exit 0;
   }
@@ -319,7 +319,7 @@ sub getDestinations {
     # each recipient will trigger the filter once
     my $tree = Mail::Field->new('Received')->parse($header->get('Received',0))->parse_tree();
     push @destinations, $tree->{'for'}{'for'};
-#&log(Data::Dumper->Dump([$tree]));
+#&loggit(Data::Dumper->Dump([$tree]));
     return @destinations;
 
 }
@@ -331,7 +331,7 @@ sub getLoggingTime {
     return $nice_timestamp;
 }
 
-sub log {
+sub loggit {
     my ($vdir, $fh);
     # validate directory structure
     foreach my $mdir (@dlog) {
@@ -356,7 +356,7 @@ sub log {
 
 sub dumpMail {
     my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
-    &log("DEBUG: logging mail to \"$dumpname\"");
+    &loggit("DEBUG: logging mail to \"$dumpname\"");
     open(my $fh, ">>", "$dumpname");
     print $fh shift;
     close($fh);
@@ -383,8 +383,8 @@ sub rw_rewrite_address_list()
 
 	if(!&is_address_array_effectively_the_same(\@res, \@lc_addresses))
 	{
-                &log("INFO: rewriting receipients list (pre): ".join(", ", @lc_addresses));
-                &log("INFO: rewriting receipients list (post): ".join(", ", @res));
+                &loggit("INFO: rewriting receipients list (pre): ".join(", ", @lc_addresses));
+                &loggit("INFO: rewriting receipients list (post): ".join(", ", @res));
 	}
 
 	return \@res;
