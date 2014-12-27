@@ -30,6 +30,10 @@ use Mail::Field;
 use Data::Dumper;
 use Time::HiRes;
 
+## define variables
+my $dlogf = 'cryptowrapper.debug.log';
+my @dlog = qw(/var/log/exim /var/log /tmp);
+
 ## Parse args
   my $encrypt_mode   = 'pgpmime';
   my $inline_flatten = 0;
@@ -72,14 +76,14 @@ use Time::HiRes;
      }
   }
 ## Set the home environment variable from the user running the script
-  $ENV{HOME} = (getpwuid($>))[7];
+local $ENV{HOME} = (getpwuid($>))[7];
 
 ## Read the plain text email
 
   my $plain = "";
   {
       local $/=undef;
-      $plain = <STDIN>;
+      $plain = <>;
   }
   my @plain_lines = split '\n',$plain;
 
@@ -110,7 +114,7 @@ else {
 &log("INFO: proceeding to encrypt mail to: ".join(", ", @recipients));
 
 ## Object for GPG encryption
-  my $gpg = new Mail::GnuPG(%gpg_params);
+  my $gpg = Mail::GnuPG->new(%gpg_params);
 
 ## Make sure we have the appropriate public key for all recipients
   foreach( @recipients ){
@@ -118,7 +122,7 @@ else {
      unless( $gpg->has_public_key( $target ) ){
 	&log("ERROR: missing key for $target. Not encrypting mail!");
 	print $plain;
-        while(<STDIN>){
+        while(<>){
            print;
         }
         exit 0;
@@ -128,7 +132,7 @@ else {
 ## Parse the email
   my $mime;
   {
-     my $parser = new MIME::Parser();
+     my $parser = MIME::Parser->new();
      $parser->decode_bodies(1);
      $parser->output_to_core(1);
      $mime = $parser->parse_data( $plain );
@@ -225,6 +229,7 @@ else {
            $entity->make_singlepart;
         }
      }
+     return 1; # best practice to return from a subroutine
   }
 
 ## Flatten multipart/related by removing images when safe
@@ -264,7 +269,7 @@ else {
           $entity->parts(\@new_parts);
           $entity->make_singlepart();
        }
-}
+     }
 
 ## Takes a HTML part, and looks for CID urls
   sub get_cids_from_html {
@@ -325,18 +330,37 @@ sub getLoggingTime {
                                    $year+1900,$mon+1,$mday,$hour,$min,$sec);
     return $nice_timestamp;
 }
+
 sub log {
-        open(my $fh, ">>", "/var/log/exim4/cryptowrapper.debug.log");
-        print $fh &getLoggingTime(), " - ", shift, "$/";
-        close($fh);
+    my ($vdir, $fh);
+    # validate directory structure
+    foreach my $mdir (@dlog) {
+        if (-d $mdir) {
+            $vdir = $mdir;
+            last;
+        }
+    }
+    # catpure error of open statement
+    if (! open($fh, ">>", "$vdir/$dlogf")) {
+        close ($fh);
+        undef $fh; # remove filehandle
+        if (! open (my $fh, ">>", "/tmp/$dlogf")) {
+            print "Critical error no access to /tmp folder\n";
+            exit(9);
+        }
+    }
+    print $fh &getLoggingTime(), " - ", shift, "$/";
+    close($fh);
+    return 1;
 }
 
 sub dumpMail {
-        my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
-        &log("DEBUG: logging mail to \"$dumpname\"");
-        open(my $fh, ">>", "$dumpname");
-        print $fh shift;
-        close($fh);
+    my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
+    &log("DEBUG: logging mail to \"$dumpname\"");
+    open(my $fh, ">>", "$dumpname");
+    print $fh shift;
+    close($fh);
+    return 1;
 }
 
 
@@ -353,7 +377,7 @@ sub rw_rewrite_address_list()
 
 	# rewrite addresses
 	my @res  = map { $rewriterules->{$_} ? @{$rewriterules->{$_}} : $_; } @lc_addresses;
-	
+
 	# flatten array
 	@res = keys { map { $_ => 1 } @res };
 
@@ -405,7 +429,7 @@ sub is_address_array_effectively_the_same()
 	my $la = shift;
 	my $lb = shift;
 	my %ha = map { $_ => 1 } @{$la};
-	
+
 	foreach(@{$lb})
 	{
 		return 0 if(!exists $ha{$_});
@@ -488,3 +512,4 @@ END_HELP
   exit 0;
 }
 
+# vim: tabstop=4 expandtab:
