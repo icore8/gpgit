@@ -344,7 +344,7 @@ sub loggit {
     if (! open($fh, ">>", "$vdir/$dlogf")) {
         close ($fh);
         undef $fh; # remove filehandle
-        if (! open (my $fh, ">>", "/tmp/$dlogf")) {
+        if (! open ($fh, ">>", "/tmp/$dlogf")) {
             print "Critical error no access to /tmp folder\n";
             exit(9);
         }
