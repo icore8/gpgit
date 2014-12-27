@@ -82,8 +82,8 @@ local $ENV{HOME} = (getpwuid($>))[7];
 
   my $plain = "";
   {
-      local $/=undef;
-      $plain = <>;
+      local $/=undef; # enable localized slurp mode
+      $plain = <STDIN>;
   }
   my @plain_lines = split '\n',$plain;
 
