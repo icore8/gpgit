@@ -1,5 +1,10 @@
 See https://grepular.com/Automatically_Encrypting_all_Incoming_Email
 
+UPDATE: 12/27/2014
+Use of perlcritic, rats and perltidy to analyze the static structure of the code
+for possible issues. This will enhance the program readability and data
+structures for future updates.
+
 This application takes one argument on the command line. The email address to
 look up the public key that the message will be encrypted with. An email
 message is piped through the application, and the resulting email is sent to
