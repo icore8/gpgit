@@ -393,7 +393,7 @@ sub rw_rewrite_address_list()
 	my $addresses = shift;
 	my $rewriterules = shift;
 
-	my @lc_addresses = map {lc($_)}	@{$addresses};
+    my @lc_addresses = map {lc($_)} @{$addresses};
 
 	# rewrite addresses
 	my @res  = map { $rewriterules->{$_} ? @{$rewriterules->{$_}} : $_; } @lc_addresses;
