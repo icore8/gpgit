@@ -272,6 +272,7 @@ else {
           $entity->parts(\@new_parts);
           $entity->make_singlepart();
        }
+        return 1; # best practice to return from a subroutine 
      }
 
 ## Takes a HTML part, and looks for CID urls
