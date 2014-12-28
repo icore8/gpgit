@@ -5,6 +5,14 @@ Use of perlcritic, rats and perltidy to analyze the static structure of the code
 for possible issues. This will enhance the program readability and data
 structures for future updates.
 
+NOTES:
+perltidy was used to align the code structure up so that analysis can be done.
+This also enhances the ability to spot possibe termination errors in the
+code base. Please feel free to modify the perltidy command below if needed.
+
+PERLTIDY: command line
+perltidy -pt=2 -bt=2 -it=2 -csc -cscl="sub : BEGIN END" -sbl  gpgit.pl -o t2.pl
+
 This application takes one argument on the command line. The email address to
 look up the public key that the message will be encrypted with. An email
 message is piped through the application, and the resulting email is sent to
