@@ -445,7 +445,7 @@ sub dumpMail
 # param: addresses (array ref)
 # param: rewriterules (hash ref, key: string, value: ref(array of strings))
 # returns: rewritten address list (array ref)
-sub rw_rewrite_address_list()
+sub rw_rewrite_address_list
 {
     my $addresses    = shift;
     my $rewriterules = shift;
@@ -471,7 +471,7 @@ sub rw_rewrite_address_list()
 ## parses an array of config lines into a hash lookup table
 # param: config file contents (array of strings in format "from: to1, to2, to3, ...")
 # returns: lookup table (hash ref, key: string, value: ref(array of strings))
-sub rw_parse_config()
+sub rw_parse_config
 {
     my %conf = ();
     while (my $entry = shift) {
@@ -484,7 +484,7 @@ sub rw_parse_config()
 ## reads contents of configuration file
 # param: configuration filename (string)
 # returns: file contents (array of strings)
-sub rw_read_config()
+sub rw_read_config
 {
     my $fname = shift;
     my @lines = ();
@@ -500,7 +500,7 @@ sub rw_read_config()
 # param: first array ref(array of string)
 # param: second array ref(array of string)
 # return: 1 or 0
-sub is_address_array_effectively_the_same()
+sub is_address_array_effectively_the_same
 {
     my $la = shift;
     my $lb = shift;
@@ -515,7 +515,7 @@ sub is_address_array_effectively_the_same()
 ## check if we're dealing with a trivial local address (no at-sign) or something defined via --no-encrypt-to
 # param: recipient addresses ref(array of string)
 # return: 1 or 0
-sub can_encrypt_to()
+sub can_encrypt_to
 {
     my $recp = shift;
     foreach (@{$recp}) {
