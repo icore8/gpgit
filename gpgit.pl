@@ -430,7 +430,7 @@ sub dumpMail
     if (!open($fh, ">>", "$vdir/$dumpname")) {
         close($fh);
         undef $fh;    # remove filehandle
-        if (!open($fh, ">>", "/tmp/$dlogf")) {
+        if (!open($fh, ">>", "/tmp/$dumpname")) {
             print "Critical error no access to /tmp folder\n";
             exit(9);
         }
