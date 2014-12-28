@@ -31,8 +31,11 @@ use Data::Dumper;
 use Time::HiRes;
 
 ## define variables
+#- LogFile
 my $dlogf = 'cryptowrapper.debug.log';
-my @dlog = qw(/var/log/exim /var/log /tmp);
+my @dlog = qw(/var/log/exim4 /var/log/exim /var/log /tmp);
+#- DumpLog
+my $dumpname = 'mail-'.Time::HiRes::time;
 
 ## Parse args
   my $encrypt_mode   = 'pgpmime';
@@ -83,7 +86,7 @@ local $ENV{HOME} = (getpwuid($>))[7];
   my $plain = "";
   {
       local $/=undef; # enable localized slurp mode
-      $plain = <STDIN>;
+      $plain = <ARGV>;
   }
   my @plain_lines = split '\n',$plain;
 
@@ -356,9 +359,24 @@ sub loggit {
 }
 
 sub dumpMail {
-    my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
+    my ($vdir, $fh);
+    # validate directory structure
+    foreach my $mdir (@dlog) {
+        if (-d $mdir) {
+            $vdir = $mdir;
+            last;
+        }
+    }
+    # catpure error of open statement
+    if (! open($fh, ">>", "$vdir/$dumpname")) {
+        close ($fh);
+        undef $fh; # remove filehandle
+        if (! open ($fh, ">>", "/tmp/$dlogf")) {
+            print "Critical error no access to /tmp folder\n";
+            exit(9);
+        }
+    }
     &loggit("DEBUG: logging mail to \"$dumpname\"");
-    open(my $fh, ">>", "$dumpname");
     print $fh shift;
     close($fh);
     return 1;
