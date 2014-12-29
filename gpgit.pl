@@ -26,6 +26,8 @@ use warnings;
 use Mail::GnuPG;
 use MIME::Parser;
 use Mail::Header;
+# need to migrate Mail::Field to Mail::Message::Head
+# author of Mail::Field says that the Message module has better tools
 use Mail::Field;
 use Data::Dumper;
 use Time::HiRes;
@@ -102,7 +104,7 @@ local $ENV{HOME} = (getpwuid($>))[7];
 my $plain = "";
 {
     local $/ = undef;    # enable localized slurp mode
-    $plain = <ARGV>;
+    $plain = <STDIN>;
 }
 my @plain_lines = split '\n', $plain;
 
@@ -348,6 +350,7 @@ sub getDestinations
 {
     my @mail = @_;
 
+    my $tree;
     my @destinations = ();
     my $header       = Mail::Header->new(\@mail);
 
@@ -365,9 +368,19 @@ sub getDestinations
 
     # the only relevant field is Received:.
     # each recipient will trigger the filter once
-    my $tree =
-      Mail::Field->new('Received')->parse($header->get('Received', 0))
-      ->parse_tree();
+    # Note: that parse_tree id deprecated under perl 5.018002
+    #       I don't know if is under 5.018 sub versions.
+    #       I have yet tested.
+    if ($] < 5.018) {
+        $tree =
+            Mail::Field->new('Received')->parse($header->get('Received', 0))
+            ->parse_tree();
+    }
+    else {
+        $tree =
+            Mail::Field->new('Received')->parse($header->get('Received', 0))
+            ->parse();
+    }
     push @destinations, $tree->{'for'}{'for'};
 
     #&loggit(Data::Dumper->Dump([$tree]));
