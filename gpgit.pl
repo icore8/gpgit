@@ -23,6 +23,7 @@
 
 use strict;
 use warnings;
+use Carp;
 use Mail::GnuPG;
 use MIME::Parser;
 use Mail::Header;
@@ -31,11 +32,15 @@ use Mail::Header;
 use Mail::Field;
 use Data::Dumper;
 use Time::HiRes;
+use version;
 
+## Define version
+our $VERSION = qv('0.1.10');
 ## define variables
 #- LogFile
 my $dlogf = 'cryptowrapper.debug.log';
 my @dlog  = qw(/var/log/exim4 /var/log/exim /var/log /tmp);
+use const $MAXPERL = '5.018';
 
 #- DumpLog
 my $dumpname = 'mail-' . Time::HiRes::time;
@@ -82,7 +87,7 @@ my @no_encrypt_to  = ();
             push @no_encrypt_to, shift @args;
         }
         elsif ($key eq '--rewrite-config') {
-            %rewrite_rules = %{&rw_parse_config(&rw_read_config(shift @args))};
+            %rewrite_rules = %{rw_parse_config(rw_read_config(shift @args))};
         }
         elsif ($key =~ /^.+\@.+$/x) {
             push @recipients, $key;
@@ -108,27 +113,27 @@ my $plain = "";
 }
 my @plain_lines = split '\n', $plain;
 
-&loggit("INFO: processing mail");
+loggit("INFO: processing mail");
 
-&dumpMail($plain);
+dumpMail($plain);
 
-push @recipients, &getDestinations(@plain_lines);
+push @recipients, getDestinations(@plain_lines);
 
-@recipients = @{&rw_rewrite_address_list(\@recipients, \%rewrite_rules)};
+@recipients = @{rw_rewrite_address_list(\@recipients, \%rewrite_rules)};
 
 if (scalar @recipients > 0) {
-    if (!&can_encrypt_to(\@recipients)) {
-        &loggit("WARNING: not encrypting mail to blacklisted receipient: "
+    if (!can_encrypt_to(\@recipients)) {
+        loggit("WARNING: not encrypting mail to blacklisted receipient: "
               . join(", ", @recipients));
         print $plain;
         exit;
     }
     else {
-        &loggit("INFO: encryping direct mail to " . join(", ", @recipients));
+        loggit("INFO: encryping direct mail to " . join(", ", @recipients));
     }
 }
 else {
-    &loggit(
+    loggit(
 "ERROR: no receipient extracted from mail. Sending unencrypted. Dumping:$/"
           . $plain
           . "$/$/");
@@ -136,7 +141,7 @@ else {
     exit;
 }
 
-&loggit("INFO: proceeding to encrypt mail to: " . join(", ", @recipients));
+loggit("INFO: proceeding to encrypt mail to: " . join(", ", @recipients));
 
 ## Object for GPG encryption
 my $gpg = Mail::GnuPG->new(%gpg_params);
@@ -145,7 +150,7 @@ my $gpg = Mail::GnuPG->new(%gpg_params);
 foreach (@recipients) {
     my $target = $_;
     unless ($gpg->has_public_key($target)) {
-        &loggit("ERROR: missing key for $target. Not encrypting mail!");
+        loggit("ERROR: missing key for $target. Not encrypting mail!");
         print $plain;
         while (<>) {
             print;
@@ -165,7 +170,7 @@ my $mime;
 
 ## Test if it is already encrypted
 if ($gpg->is_encrypted($mime)) {
-    &loggit("INFO: mail is already encrypted");
+    loggit("INFO: mail is already encrypted");
     print $plain;
     exit 0;
 }
@@ -339,7 +344,7 @@ sub mime_structure
         my @parts = $entity->parts;
         return
           $entity->mime_type . '('
-          . join(",", map { mime_structure($_) } @parts) . ')';
+          . join(q{,}, map { mime_structure($_) } @parts) . ')';
     }
     else {
         return $entity->mime_type;
@@ -371,7 +376,7 @@ sub getDestinations
     # Note: that parse_tree id deprecated under perl 5.018002
     #       I don't know if is under 5.018 sub versions.
     #       I have yet tested.
-    if ($] < 5.018) {
+    if ($] < $MAXPERL) {
         $tree =
             Mail::Field->new('Received')->parse($header->get('Received', 0))
             ->parse_tree();
@@ -414,16 +419,17 @@ sub loggit
 
     # catpure error of open statement
     if (!open($fh, ">>", "$vdir/$dlogf")) {
-        close($fh);
-        undef $fh;    # remove filehandle
+        close $fh
+            or croak "Can't open '$vdir/$dlogf' : $!";
         if (!open($fh, ">>", "/tmp/$dlogf")) {
+            close $fh
+                or croak "Can't open '$vdir/$dlogf' : $!";
             print "Critical error no access to /tmp folder\n";
             exit(9);
         }
     }
-    print $fh &getLoggingTime(), " - ", shift, "$/";
-    close($fh);
-    undef $fh;
+    print $fh getLoggingTime(), " - ", shift, "$/";
+    close $fh;
     return 1;
 } ## end sub loggit
 
@@ -448,7 +454,7 @@ sub dumpMail
             exit(9);
         }
     }
-    &loggit("DEBUG: logging mail to \"$dumpname\"");
+    loggit("DEBUG: logging mail to \"$dumpname\"");
     print $fh shift;
     close($fh);
     return 1;
@@ -472,10 +478,10 @@ sub rw_rewrite_address_list
     # flatten array
     @res = keys {map { $_ => 1 } @res};
 
-    if (!&is_address_array_effectively_the_same(\@res, \@lc_addresses)) {
-        &loggit("INFO: rewriting receipients list (pre): "
+    if (!is_address_array_effectively_the_same(\@res, \@lc_addresses)) {
+        loggit("INFO: rewriting receipients list (pre): "
               . join(", ", @lc_addresses));
-        &loggit("INFO: rewriting receipients list (post): " . join(", ", @res));
+        loggit("INFO: rewriting receipients list (post): " . join(", ", @res));
     }
 
     return \@res;
