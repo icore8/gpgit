@@ -32,15 +32,18 @@ use Mail::Header;
 use Mail::Field;
 use Data::Dumper;
 use Time::HiRes;
+use Readonly;
 use version;
 
-## Define version
-our $VERSION = qv('0.1.10');
+our $VERSION => qv('0.1.10');
+
+## Define constants
+Readonly my $MAXPERL => '5.018';
+
 ## define variables
 #- LogFile
 my $dlogf = 'cryptowrapper.debug.log';
 my @dlog  = qw(/var/log/exim4 /var/log/exim /var/log /tmp);
-use const $MAXPERL = '5.018';
 
 #- DumpLog
 my $dumpname = 'mail-' . Time::HiRes::time;
@@ -425,7 +428,7 @@ sub loggit
             close $fh
                 or croak "Can't open '$vdir/$dlogf' : $!";
             print "Critical error no access to /tmp folder\n";
-            exit(9);
+            exit(2);
         }
     }
     print $fh getLoggingTime(), " - ", shift, "$/";
@@ -451,7 +454,7 @@ sub dumpMail
         undef $fh;    # remove filehandle
         if (!open($fh, ">>", "/tmp/$dumpname")) {
             print "Critical error no access to /tmp folder\n";
-            exit(9);
+            exit(2);
         }
     }
     loggit("DEBUG: logging mail to \"$dumpname\"");
