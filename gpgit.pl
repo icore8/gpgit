@@ -23,123 +23,160 @@
 
 use strict;
 use warnings;
+use Carp;
 use Mail::GnuPG;
 use MIME::Parser;
 use Mail::Header;
+# need to migrate Mail::Field to Mail::Message::Head
+# author of Mail::Field says that the Message module has better tools
 use Mail::Field;
 use Data::Dumper;
 use Time::HiRes;
+use Readonly;
+use version;
+
+our $VERSION => qv('0.1.10');
+
+## Define constants
+Readonly my $MAXPERL => '5.018';
+
+## define variables
+#- LogFile
+my $dlogf = 'cryptowrapper.debug.log';
+my @dlog  = qw(/var/log/exim4 /var/log/exim /var/log /tmp);
+
+#- DumpLog
+my $dumpname = 'mail-' . Time::HiRes::time;
 
 ## Parse args
-  my $encrypt_mode   = 'pgpmime';
-  my $inline_flatten = 0;
-  my @recipients     = ();
-  my $gpg_home       = 0;
-  my %gpg_params = ();
-  my %rewrite_rules = ();
-  my @no_encrypt_to = ();
-  {
-     my @args = @ARGV;
-     while( @args ){
+my $encrypt_mode   = 'pgpmime';
+my $inline_flatten = 0;
+my @recipients     = ();
+my $gpg_home       = 0;
+my %gpg_params     = ();
+my %rewrite_rules  = ();
+my @no_encrypt_to  = ();
+{
+    my @args = @ARGV;
+    while (@args) {
         my $key = shift @args;
-    if( $key eq '--help' || $key eq '-h' ){
-       help();
-    } elsif( $key eq '--encrypt-mode' ){
-       $encrypt_mode = shift @args;
-       unless( defined $encrypt_mode && grep( $encrypt_mode eq $_, 'prefer-inline', 'pgpmime', 'inline-or-plain' ) ){
-          die "Bad value for --encrypt-mode\n";
-       }
-    } elsif( $key eq '--gpg-home' ){
-        $gpg_params{'keydir'} = shift @args;
-    } elsif( $key eq '--gpg-path' ){
-        $gpg_params{'gpg_path'} = shift @args;
-    } elsif( $key eq '--always-trust' ){
-        $gpg_params{'always_trust'} = 1;
-    } elsif( $key eq '--inline-flatten' ){
-           $inline_flatten = 1;
-    } elsif( $key eq '--no-encrypt-to' ){
-	push @no_encrypt_to, shift @args;
-    } elsif( $key eq '--rewrite-config' ){
-	%rewrite_rules = %{ &rw_parse_config(&rw_read_config(shift @args)) };
-    } elsif( $key =~ /^.+\@.+$/ ){
-       push @recipients, $key;
-    } else {
-           die "Bad argument: $key\n";
+        if ($key eq '--help' || $key eq '-h') {
+            help();
+        }
+        elsif ($key eq '--encrypt-mode') {
+            $encrypt_mode = shift @args;
+            unless (
+                defined $encrypt_mode
+                && grep($encrypt_mode eq $_,
+                    'prefer-inline', 'pgpmime', 'inline-or-plain')
+              )
+            {
+                die "Bad value for --encrypt-mode\n";
+            }
+        }
+        elsif ($key eq '--gpg-home') {
+            $gpg_params{'keydir'} = shift @args;
+        }
+        elsif ($key eq '--gpg-path') {
+            $gpg_params{'gpg_path'} = shift @args;
+        }
+        elsif ($key eq '--always-trust') {
+            $gpg_params{'always_trust'} = 1;
+        }
+        elsif ($key eq '--inline-flatten') {
+            $inline_flatten = 1;
+        }
+        elsif ($key eq '--no-encrypt-to') {
+            push @no_encrypt_to, shift @args;
+        }
+        elsif ($key eq '--rewrite-config') {
+            %rewrite_rules = %{rw_parse_config(rw_read_config(shift @args))};
+        }
+        elsif ($key =~ /^.+\@.+$/x) {
+            push @recipients, $key;
+        }
+        else {
+            die "Bad argument: $key\n";
+        }
     }
-     }
-     if( $inline_flatten && $encrypt_mode eq 'pgpmime' ){
-        die "inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n"
-     }
-  }
+    if ($inline_flatten && $encrypt_mode eq 'pgpmime') {
+        die
+"inline-flatten option makes no sense with \"pgpmime\" encrypt-mode. See --help\n";
+    }
+}
 ## Set the home environment variable from the user running the script
-  $ENV{HOME} = (getpwuid($>))[7];
+local $ENV{HOME} = (getpwuid($>))[7];
 
 ## Read the plain text email
 
-  my $plain = "";
-  {
-      local $/=undef;
-      $plain = <STDIN>;
-  }
-  my @plain_lines = split '\n',$plain;
-
-&log("INFO: processing mail");
-
-&dumpMail($plain);
-
-push @recipients, &getDestinations(@plain_lines);
-
-@recipients = @{ &rw_rewrite_address_list(\@recipients, \%rewrite_rules) };
-
-if(scalar @recipients > 0) {
-        if(!&can_encrypt_to(\@recipients)){
-                &log("WARNING: not encrypting mail to blacklisted receipient: ".join(", ", @recipients));
-                print $plain;
-                exit;
-        }
-        else {
-                &log("INFO: encryping direct mail to ".join(", ", @recipients));
-        }
+my $plain = "";
+{
+    local $/ = undef;    # enable localized slurp mode
+    $plain = <STDIN>;
 }
-else {
-        &log("ERROR: no receipient extracted from mail. Sending unencrypted. Dumping:$/".$plain."$/$/");
+my @plain_lines = split '\n', $plain;
+
+loggit("INFO: processing mail");
+
+dumpMail($plain);
+
+push @recipients, getDestinations(@plain_lines);
+
+@recipients = @{rw_rewrite_address_list(\@recipients, \%rewrite_rules)};
+
+if (scalar @recipients > 0) {
+    if (!can_encrypt_to(\@recipients)) {
+        loggit("WARNING: not encrypting mail to blacklisted receipient: "
+              . join(", ", @recipients));
         print $plain;
         exit;
+    }
+    else {
+        loggit("INFO: encryping direct mail to " . join(", ", @recipients));
+    }
+}
+else {
+    loggit(
+"ERROR: no receipient extracted from mail. Sending unencrypted. Dumping:$/"
+          . $plain
+          . "$/$/");
+    print $plain;
+    exit;
 }
 
-&log("INFO: proceeding to encrypt mail to: ".join(", ", @recipients));
+loggit("INFO: proceeding to encrypt mail to: " . join(", ", @recipients));
 
 ## Object for GPG encryption
-  my $gpg = new Mail::GnuPG(%gpg_params);
+my $gpg = Mail::GnuPG->new(%gpg_params);
 
 ## Make sure we have the appropriate public key for all recipients
-  foreach( @recipients ){
-     my $target = $_;
-     unless( $gpg->has_public_key( $target ) ){
-	&log("ERROR: missing key for $target. Not encrypting mail!");
-	print $plain;
-        while(<STDIN>){
-           print;
+foreach (@recipients) {
+    my $target = $_;
+    unless ($gpg->has_public_key($target)) {
+        loggit("ERROR: missing key for $target. Not encrypting mail!");
+        print $plain;
+        while (<>) {
+            print;
         }
         exit 0;
-     }
-  }
+    }
+}
 
 ## Parse the email
-  my $mime;
-  {
-     my $parser = new MIME::Parser();
-     $parser->decode_bodies(1);
-     $parser->output_to_core(1);
-     $mime = $parser->parse_data( $plain );
-  }
+my $mime;
+{
+    my $parser = MIME::Parser->new();
+    $parser->decode_bodies(1);
+    $parser->output_to_core(1);
+    $mime = $parser->parse_data($plain);
+}
 
 ## Test if it is already encrypted
-  if( $gpg->is_encrypted( $mime ) ){
-     &log("INFO: mail is already encrypted");
-     print $plain;
-     exit 0;
-  }
+if ($gpg->is_encrypted($mime)) {
+    loggit("INFO: mail is already encrypted");
+    print $plain;
+    exit 0;
+}
 
 ## If the user has specified that they prefer/need inline encryption, instead of PGP/MIME, and the email is multipart, then
 ## we need to attempt to flatten the message down into a single text/plain part. There are a couple of safe'ish lossy ways of
@@ -153,151 +190,178 @@ else {
 ##   We'll be stripping the HTML parts, so if those HTML parts use a CID URL to refer to a related image, we may as well strip
 ##   those images too as they will no longer be used in the display of the email
 
-  if( $inline_flatten ){
-     if( $encrypt_mode eq 'prefer-inline' || $encrypt_mode eq 'inline-or-plain' ){
-        if( $mime->mime_type =~ /^multipart\/(alternative|related)$/ ){
+if ($inline_flatten) {
+    if ($encrypt_mode eq 'prefer-inline' || $encrypt_mode eq 'inline-or-plain')
+    {
+        if ($mime->mime_type =~ /^multipart\/(alternative|related)$/x) {
 
-           ## We're going to try several things to flatten the email to a single text/plain part. We want to work on a duplicate
-       ## version of the message so we can fall back to the original if we don't manage to flatten all the way
-             my $new_mime = $mime->dup;
+            ## We're going to try several things to flatten the email to a single text/plain part. We want to work on a duplicate
+            ## version of the message so we can fall back to the original if we don't manage to flatten all the way
+            my $new_mime = $mime->dup;
 
-           ## Remember the original MIME structure so we can add it to an information header
-             my $orig_mime_structure = mime_structure( $mime );
+            ## Remember the original MIME structure so we can add it to an information header
+            my $orig_mime_structure = mime_structure($mime);
 
-       ## We may already be able to safely flatten, if we have a multipart/x message with only a single child part. Unlikely
-             $new_mime->make_singlepart;
+            ## We may already be able to safely flatten, if we have a multipart/x message with only a single child part. Unlikely
+            $new_mime->make_singlepart;
 
-           ## multipart/related
-             flatten_related( $new_mime     ) if $new_mime->mime_type eq 'multipart/related';
-             flatten_alternative( $new_mime ) if $new_mime->mime_type eq 'multipart/alternative';
+            ## multipart/related
+            flatten_related($new_mime)
+              if $new_mime->mime_type eq 'multipart/related';
+            flatten_alternative($new_mime)
+              if $new_mime->mime_type eq 'multipart/alternative';
 
-           ## Keep the new message if it was succesfully flattened
-             if( $new_mime->mime_type !~ /^multipart\// ){
-                $new_mime->head->add('X-GPGIT-Flattened-From', $orig_mime_structure );
+            ## Keep the new message if it was succesfully flattened
+            if ($new_mime->mime_type !~ /^multipart\//x) {
+                $new_mime->head->add('X-GPGIT-Flattened-From',
+                    $orig_mime_structure);
                 $mime = $new_mime;
-             }
+            }
         }
-     }
-  }
-
-## Encrypt
-  {
-     my $code;
-     if( $encrypt_mode eq 'pgpmime' ){
-        $code = $gpg->mime_encrypt( $mime, @recipients );
-     } elsif( $encrypt_mode eq 'prefer-inline' ){
-        $mime->make_singlepart;
-        $code = $mime->mime_type =~ /^text\/plain/
-              ? $gpg->ascii_encrypt( $mime, @recipients )
-              : $gpg->mime_encrypt(  $mime, @recipients );
-     } elsif( $encrypt_mode eq 'inline-or-plain' ){
-        $mime->make_singlepart;
-        if( $mime->mime_type =~ /^text\/plain/ ){
-       $code = $gpg->ascii_encrypt( $mime, @recipients );
-    } else {
-       print $plain; exit 0;
     }
-     }
-
-     if( $code ){
-        print $plain;
-    exit 0;
-     }
-  }
-
-## Remove some headers which might have been broken by the process of encryption
-  $mime->head()->delete($_) foreach qw( DKIM-Signature DomainKey-Signature );
-
-## Print out the encrypted version
-  print $mime->stringify;
-
-## Flatten multipart/alternative by removing html parts when safe
-  sub flatten_alternative {
-     my $entity = shift;
-
-     my @parts = $entity->parts;
-
-     if( int(@parts) == 2 && $parts[0]->mime_type eq 'text/plain' && $parts[1]->mime_type eq 'text/html' ){
-        my $body = $parts[0]->bodyhandle->as_string;
-        $body =~ s/^[\s\r\n]*(.*?)[\s\r\n]*$/$1/s;
-        if( length($body) >= 10 ){
-           $entity->parts([$parts[0]]);
-           $entity->make_singlepart;
-        }
-     }
-  }
-
-## Flatten multipart/related by removing images when safe
-  sub flatten_related {
-     my $entity = shift;
-
-     ## Scan the existing parts
-       my( @parts, %cids );
-       foreach my $part ( $entity->parts ){
-          if( $part->mime_type =~ /^image\// ){
-             my $content_id = $part->head->get('Content-Id')||'';
-             $content_id =~ s/^<(.+?)>$/$1/;
-             $content_id =~ s/[\r\n]+//g;
-             if( length($content_id) ){
-                push @parts, { content_id => $content_id, part => $part };
-                next;
-             }
-          } elsif( $part->mime_type eq 'text/html' ){
-             $cids{$_} = 1 foreach get_cids_from_html( $part );
-          } elsif( $part->mime_type eq 'multipart/alternative' ){
-             foreach my $part ( grep( $_->mime_type eq 'text/html', $part->parts ) ){
-                $cids{$_} = 1 foreach get_cids_from_html( $part );
-             }
-          }
-          push @parts, { part => $part };
-       }
-
-     ## Remove images linked to from HTML
-       my @new_parts;
-       foreach my $part ( @parts ){
-          next if exists $part->{content_id} && $cids{$part->{content_id}};
-          push @new_parts, $part->{part};
-       }
-
-     ## If we've managed to get rid of at least one child part, then update the mime entity
-       if( int(@new_parts) < int(@parts) ){
-          $entity->parts(\@new_parts);
-          $entity->make_singlepart();
-       }
 }
 
+## Encrypt
+{
+    my $code;
+    if ($encrypt_mode eq 'pgpmime') {
+        $code = $gpg->mime_encrypt($mime, @recipients);
+    }
+    elsif ($encrypt_mode eq 'prefer-inline') {
+        $mime->make_singlepart;
+        $code =
+            $mime->mime_type =~ /^text\/plain/x
+          ? $gpg->ascii_encrypt($mime, @recipients)
+          : $gpg->mime_encrypt($mime, @recipients);
+    }
+    elsif ($encrypt_mode eq 'inline-or-plain') {
+        $mime->make_singlepart;
+        if ($mime->mime_type =~ /^text\/plain/x) {
+            $code = $gpg->ascii_encrypt($mime, @recipients);
+        }
+        else {
+            print $plain;
+            exit 0;
+        }
+    }
+
+    if ($code) {
+        print $plain;
+        exit 0;
+    }
+}
+
+## Remove some headers which might have been broken by the process of encryption
+$mime->head()->delete($_) foreach qw( DKIM-Signature DomainKey-Signature );
+
+## Print out the encrypted version
+print $mime->stringify;
+
+## Flatten multipart/alternative by removing html parts when safe
+sub flatten_alternative
+{
+    my $entity = shift;
+
+    my @parts = $entity->parts;
+
+    if (   int(@parts) == 2
+        && $parts[0]->mime_type eq 'text/plain'
+        && $parts[1]->mime_type eq 'text/html')
+    {
+        my $body = $parts[0]->bodyhandle->as_string;
+        $body =~ s/^[\s\r\n]*(.*?)[\s\r\n]*$/$1/sx;
+        if (length($body) >= 10) {
+            $entity->parts([ $parts[0] ]);
+            $entity->make_singlepart;
+        }
+    }
+    return 1;    # best practice to return from a subroutine
+} ## end sub flatten_alternative
+
+## Flatten multipart/related by removing images when safe
+sub flatten_related
+{
+    my $entity = shift;
+
+    ## Scan the existing parts
+    my (@parts, %cids);
+    foreach my $part ($entity->parts) {
+        if ($part->mime_type =~ /^image\//x) {
+            my $content_id = $part->head->get('Content-Id') || '';
+            $content_id =~ s/^<(.+?)>$/$1/x;
+            $content_id =~ s/[\r\n]+//gx;
+            if (length($content_id)) {
+                push @parts, {content_id => $content_id, part => $part};
+                next;
+            }
+        }
+        elsif ($part->mime_type eq 'text/html') {
+            $cids{$_} = 1 foreach get_cids_from_html($part);
+        }
+        elsif ($part->mime_type eq 'multipart/alternative') {
+            foreach my $part (grep($_->mime_type eq 'text/html', $part->parts))
+            {
+                $cids{$_} = 1 foreach get_cids_from_html($part);
+            }
+        }
+        push @parts, {part => $part};
+    }
+
+    ## Remove images linked to from HTML
+    my @new_parts;
+    foreach my $part (@parts) {
+        next if exists $part->{content_id} && $cids{$part->{content_id}};
+        push @new_parts, $part->{part};
+    }
+
+    ## If we've managed to get rid of at least one child part, then update the mime entity
+    if (int(@new_parts) < int(@parts)) {
+        $entity->parts(\@new_parts);
+        $entity->make_singlepart();
+    }
+    return 1;    # best practice to return from a subroutine
+} ## end sub flatten_related
+
 ## Takes a HTML part, and looks for CID urls
-  sub get_cids_from_html {
-     my $entity = shift;
+sub get_cids_from_html
+{
+    my $entity = shift;
 
-     ## Get the decoded HTML
-       my $html = $entity->bodyhandle->as_string;
+    ## Get the decoded HTML
+    my $html = $entity->bodyhandle->as_string;
 
-     ## Replace newlines with spaces
-       $html =~ s/\s*[\r\n]+\s*/ /gsm;
+    ## Replace newlines with spaces
+    $html =~ s/\s*[\r\n]+\s*/ /gsmx;
 
-     ## Parse out cid urls
-       my @cids;
-       $html =~ s/=\s*["']?cid:(.+?)["'\s\/>]/push @cids,$1/egoism;
+    ## Parse out cid urls
+    my @cids;
+    $html =~ s/=\s*["']?cid:(.+?)["'\s\/>]/push @cids,$1/egoismx;
 
-     return @cids;
-  }
+    return @cids;
+} ## end sub get_cids_from_html
 
-  sub mime_structure {
-     my $entity = shift;
-     if( $entity->mime_type =~ /^multipart\/.+/ ){
+sub mime_structure
+{
+    my $entity = shift;
+    if ($entity->mime_type =~ /^multipart\/.+/x) {
         my @parts = $entity->parts;
-    return $entity->mime_type.'('.join(",",map {mime_structure($_)} @parts).')';
-     } else {
+        return
+          $entity->mime_type . '('
+          . join(q{,}, map { mime_structure($_) } @parts) . ')';
+    }
+    else {
         return $entity->mime_type;
-     }
-  }
+    }
+} ## end sub mime_structure
 
-sub getDestinations {
+sub getDestinations
+{
     my @mail = @_;
 
+    my $tree;
     my @destinations = ();
-    my $header = Mail::Header->new(\@mail);
+    my $header       = Mail::Header->new(\@mail);
+
     #foreach my $fieldname ('To', 'Cc', 'Bcc', 'Envelope-To')
     #{
     #    for(my $i=0; $i<$header->count($fieldname);++$i)
@@ -312,130 +376,184 @@ sub getDestinations {
 
     # the only relevant field is Received:.
     # each recipient will trigger the filter once
-    my $tree = Mail::Field->new('Received')->parse($header->get('Received',0))->parse_tree();
+    # Note: that parse_tree id deprecated under perl 5.018002
+    #       I don't know if is under 5.018 sub versions.
+    #       I have yet tested.
+    if ($] < $MAXPERL) {
+        $tree =
+            Mail::Field->new('Received')->parse($header->get('Received', 0))
+            ->parse_tree();
+    }
+    else {
+        $tree =
+            Mail::Field->new('Received')->parse($header->get('Received', 0))
+            ->parse();
+    }
     push @destinations, $tree->{'for'}{'for'};
-#&log(Data::Dumper->Dump([$tree]));
+
+    #&loggit(Data::Dumper->Dump([$tree]));
     return @destinations;
 
-}
+} ## end sub getDestinations
 
-sub getLoggingTime {
-    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst)=localtime(time);
-    my $nice_timestamp = sprintf ( "%04d-%02d-%02d %02d:%02d:%02d",
-                                   $year+1900,$mon+1,$mday,$hour,$min,$sec);
+sub getLoggingTime
+{
+    my ($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) =
+      localtime(time);
+    my $nice_timestamp = sprintf(
+        "%04d-%02d-%02d %02d:%02d:%02d",
+        $year + 1900,
+        $mon + 1, $mday, $hour, $min, $sec
+    );
     return $nice_timestamp;
-}
-sub log {
-        open(my $fh, ">>", "/var/log/exim4/cryptowrapper.debug.log");
-        print $fh &getLoggingTime(), " - ", shift, "$/";
-        close($fh);
-}
+} ## end sub getLoggingTime
 
-sub dumpMail {
-        my $dumpname = "/var/log/exim4/mail-".Time::HiRes::time;
-        &log("DEBUG: logging mail to \"$dumpname\"");
-        open(my $fh, ">>", "$dumpname");
-        print $fh shift;
-        close($fh);
-}
+sub loggit
+{
+    my ($vdir, $fh);
 
+    # validate directory structure
+    foreach my $mdir (@dlog) {
+        if (-d $mdir) {
+            $vdir = $mdir;
+            last;
+        }
+    }
+
+    # catpure error of open statement
+    if (!open($fh, ">>", "$vdir/$dlogf")) {
+        close $fh
+            or croak "Can't open '$vdir/$dlogf' : $!";
+        if (!open($fh, ">>", "/tmp/$dlogf")) {
+            close $fh
+                or croak "Can't open '$vdir/$dlogf' : $!";
+            print "Critical error no access to /tmp folder\n";
+            exit(2);
+        }
+    }
+    print $fh getLoggingTime(), " - ", shift, "$/";
+    close $fh;
+    return 1;
+} ## end sub loggit
+
+sub dumpMail
+{
+    my ($vdir, $fh);
+
+    # validate directory structure
+    foreach my $mdir (@dlog) {
+        if (-d $mdir) {
+            $vdir = $mdir;
+            last;
+        }
+    }
+
+    # catpure error of open statement
+    if (!open($fh, ">>", "$vdir/$dumpname")) {
+        close($fh);
+        undef $fh;    # remove filehandle
+        if (!open($fh, ">>", "/tmp/$dumpname")) {
+            print "Critical error no access to /tmp folder\n";
+            exit(2);
+        }
+    }
+    loggit("DEBUG: logging mail to \"$dumpname\"");
+    print $fh shift;
+    close($fh);
+    return 1;
+} ## end sub dumpMail
 
 ## rewrite addresses using the supplied rewrite rule hash lookup table
 # param: addresses (array ref)
 # param: rewriterules (hash ref, key: string, value: ref(array of strings))
 # returns: rewritten address list (array ref)
-sub rw_rewrite_address_list()
+sub rw_rewrite_address_list
 {
-	my $addresses = shift;
-	my $rewriterules = shift;
+    my $addresses    = shift;
+    my $rewriterules = shift;
 
-	my @lc_addresses = map {lc($_)}	@{$addresses};
+    my @lc_addresses = map { lc($_) } @{$addresses};
 
-	# rewrite addresses
-	my @res  = map { $rewriterules->{$_} ? @{$rewriterules->{$_}} : $_; } @lc_addresses;
-	
-	# flatten array
-	@res = keys { map { $_ => 1 } @res };
+    # rewrite addresses
+    my @res =
+      map { $rewriterules->{$_} ? @{$rewriterules->{$_}} : $_; } @lc_addresses;
 
-	if(!&is_address_array_effectively_the_same(\@res, \@lc_addresses))
-	{
-                &log("INFO: rewriting receipients list (pre): ".join(", ", @lc_addresses));
-                &log("INFO: rewriting receipients list (post): ".join(", ", @res));
-	}
+    # flatten array
+    @res = keys {map { $_ => 1 } @res};
 
-	return \@res;
-}
+    if (!is_address_array_effectively_the_same(\@res, \@lc_addresses)) {
+        loggit("INFO: rewriting receipients list (pre): "
+              . join(", ", @lc_addresses));
+        loggit("INFO: rewriting receipients list (post): " . join(", ", @res));
+    }
+
+    return \@res;
+} ## end sub rw_rewrite_address_list
 
 ## parses an array of config lines into a hash lookup table
 # param: config file contents (array of strings in format "from: to1, to2, to3, ...")
 # returns: lookup table (hash ref, key: string, value: ref(array of strings))
-sub rw_parse_config()
+sub rw_parse_config
 {
-	my %conf = ();
-	while(my $entry = shift)
-	{
-		my ($from, $to) = split(/\s*:\s*/, $entry);
-		$conf{lc($from)} = [map { lc($_) } split(/\s*,\s*/, $to)];
-	}
-	return \%conf;
-}
+    my %conf = ();
+    while (my $entry = shift) {
+        my ($from, $to) = split(/\s*:\s*/x, $entry);
+        $conf{lc($from)} = [ map { lc($_) } split(/\s*,\s*/x, $to) ];
+    }
+    return \%conf;
+} ## end sub rw_parse_config
 
 ## reads contents of configuration file
 # param: configuration filename (string)
 # returns: file contents (array of strings)
-sub rw_read_config()
+sub rw_read_config
 {
-	my $fname = shift;
-	my @lines = ();
-	open(my $fh, "<", $fname) or return @lines;
-	while(my $line = <$fh>)
-	{
-		chomp($line);
-		push @lines, $line;
-	}
-	return @lines;
-}
+    my $fname = shift;
+    my @lines = ();
+    open(my $fh, "<", $fname) or return @lines;
+    while (my $line = <$fh>) {
+        chomp($line);
+        push @lines, $line;
+    }
+    return @lines;
+} ## end sub rw_read_config
 
 # checks equality of two arrays by value
 # param: first array ref(array of string)
 # param: second array ref(array of string)
 # return: 1 or 0
-sub is_address_array_effectively_the_same()
+sub is_address_array_effectively_the_same
 {
-	my $la = shift;
-	my $lb = shift;
-	my %ha = map { $_ => 1 } @{$la};
-	
-	foreach(@{$lb})
-	{
-		return 0 if(!exists $ha{$_});
-	}
-	return 1;
-}
+    my $la = shift;
+    my $lb = shift;
+    my %ha = map { $_ => 1 } @{$la};
+
+    foreach (@{$lb}) {
+        return 0 if (!exists $ha{$_});
+    }
+    return 1;
+} ## end sub is_address_array_effectively_the_same
 
 ## check if we're dealing with a trivial local address (no at-sign) or something defined via --no-encrypt-to
 # param: recipient addresses ref(array of string)
 # return: 1 or 0
-sub can_encrypt_to()
+sub can_encrypt_to
 {
-	my $recp = shift;
-	foreach(@{$recp})
-	{
-		my $addr = $_;
-		return 0 if($addr !~ /\@/);
-		foreach(@no_encrypt_to)
-		{
-			my $blacklist = $_;
-			return 0 if($addr =~ /$blacklist/);
-		}
-	}
-	return 1;
-}
+    my $recp = shift;
+    foreach (@{$recp}) {
+        my $addr = $_;
+        return 0 if ($addr !~ /\@/x);
+        foreach (@no_encrypt_to) {
+            my $blacklist = $_;
+            return 0 if ($addr =~ /$blacklist/x);
+        }
+    }
+    return 1;
+} ## end sub can_encrypt_to
 
-
-
-sub help {
-   print << "END_HELP";
+sub help
+{
+    print << "END_HELP";
 Usage: gpgit.pl [recipient ...]
 
 Gpgit takes an optional list of email addresses as its arguments. The email
@@ -485,6 +603,7 @@ I believe them to be safe(ish):
     remove image parts, we only remove "related" image parts that are
     referred by using CID URLs pointing at their Content-Id headers.
 END_HELP
-  exit 0;
-}
+    exit 0;
+} ## end sub help
 
+# vim: tabstop=4 expandtab:
